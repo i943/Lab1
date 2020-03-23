@@ -13,7 +13,7 @@ N = 9/(4*(eps^2));      % Количество экспериментов для достижения точности
 messages = de2bi((0:2^k-1)');     % Все возможные сообщения
 codewords = zeros(2^k, k + r);    % Все кодовые слова с контрольной суммой
 for j=1:2^k
-    [~, c] = gfdeconv([zeros(1, r), messages(j,:)], g_x);  % Деление в поле 
+    c = GFdivide([zeros(1, r), messages(j,:)], g_x);  % Деление в поле 
     codewords(j,:) = xor([zeros(1, r), messages(j,:)], ... % Склеивание
                          [c, zeros(1, k+r - length(c))]);   
 end
@@ -23,8 +23,7 @@ w_errors = sum(errors(1:end, :)'); % Веса векторов ошибок
 % d = min(w);                      % Для случая, когда d не известно
 disp(codewords);                   % Вывод кодовой книги
 
-Pe = zeros(1,length(p));            % Моделирование
-Pe_theor = zeros(1, length(p));     % Теория
+Pe_theor = zeros(1, length(p));     % Точное значение
 Pe_up_theor = zeros(1, length(p));  % Верхняя граница
 for i=1:length(p)
     % Расчет верхней границы по формуле. Число сочетаний считается, как
@@ -42,25 +41,55 @@ for i=1:length(p)
         P = P + sum(w == j) * (p(i)^j) * ((1 - p(i))^((k + r)-j));
     end
     Pe_theor(i) = P;
-    
-    nErrDecode = 0; % Количество ошибок декодирования
-    for n=1:N
-        c = codewords(randi(2^k, 1), :);  % Рандомно генерируем номер
-                                          % сообщения и берем из заранее
-                                          % сгенерированного массива слово
-        v = rand(1, length(c)) < p(i); % Рандомно генерируем вектор ошибок
-        [~, S] = gfdeconv(xor(c, v)+0, g_x); % Делим слово+ошибки на
-                                             % порождающий многочлен в поле
-        if (bi2de(S) == 0) && (nnz(v) > 0)  % S - остаток от деления, если
-            nErrDecode = nErrDecode + 1;    % он равен 0, то ошибки не 
-        end                                 % обнаружены. Если при этом они
-    end                                     % были, значит, ошибка декодера
-    Pe(i) = nErrDecode/N;
 end
 
 figure;
-plot(p, Pe, 'bo', ...
-     p, Pe_up_theor, 'r.-', ...
+plot(p, Pe_up_theor, 'r.-', ...
      p, Pe_theor, 'k.-')
-legend('Pe', 'Pe up', 'Pe theor');
+legend('Pe up', 'Pe theor');
 xlabel('p_{bit}')
+
+
+function [dividend] = GFdivide(polynomial, g_x)
+    % Если полином состоит из нулей, возвращаем ноль
+    if all(1~=polynomial)
+        dividend = 0;
+        return
+    end
+
+    % Делимое - полином. Убираем с конца лишние нули, если они есть
+    % (Нули в конце - старшая степень, если равны 0, то неправильно
+    % будет определена степень полинома)
+    dividend = polynomial;
+    while dividend(end) == 0
+        dividend = dividend(1:end-1);
+    end
+
+    % Определяем степени делимого (полинома) и делителя 
+    deg_polynomial = length(dividend) - 1;
+    deg_g_x = length(g_x) - 1;
+
+    % Делим, пока степени делимого не меньше степени делителя
+    while deg_polynomial >= deg_g_x
+        % Добавляем нули в конец делителя, чтобы они были одинаковой длины
+        divider = [zeros(1, deg_polynomial - deg_g_x), g_x];
+        % Ксорим (вычитаем по модулю два)
+        dividend = divider ~= dividend;
+
+        % Если остаток не ноль
+        if any(dividend)
+            % Снова убираем с конца делимого нули
+            while dividend(end) == 0
+                dividend = dividend(1:end-1);
+            end
+            % Меняем степень делимого
+            deg_polynomial = length(dividend) - 1;
+        % Если остаток ноль, возвращаем ноль
+        else
+            dividend = 0;
+            return
+        end
+    end
+    % Результат - то, что осталось от делимого после всех операций
+    % (остаток)
+end
